@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>内网 IP 上报</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-soft: #111831;
+    --panel: #151d38;
+    --panel-2: #1a2444;
+    --border: #273356;
+    --text: #e8edf9;
+    --muted: #8e9ab8;
+    --accent: #5b8cff;
+    --accent-2: #36d1a3;
+    --danger: #ff6b7a;
+    --warning: #ffc857;
+    --shadow: 0 18px 45px rgba(0, 0, 0, .28);
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC",
+      "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(900px 500px at 10% -10%, rgba(91, 140, 255, .20), transparent 60%),
+      radial-gradient(700px 420px at 105% 0%, rgba(54, 209, 163, .12), transparent 60%),
+      var(--bg);
+    min-height: 100vh;
+  }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  .app { max-width: 1280px; margin: 0 auto; padding: 28px 22px 60px; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px; flex-wrap: wrap; margin-bottom: 24px;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .logo {
+    width: 48px; height: 48px; border-radius: 14px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    font-weight: 800; letter-spacing: -.5px; box-shadow: 0 8px 24px rgba(91, 140, 255, .35);
+  }
+  h1 { margin: 0; font-size: 21px; letter-spacing: .2px; }
+  .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .token-wrap { position: relative; }
+  .token-wrap input {
+    width: 220px; padding: 9px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: rgba(10, 15, 31, .75);
+    color: var(--text); outline: none;
+  }
+  .token-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91, 140, 255, .16); }
+  .btn {
+    border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); border-radius: 10px; padding: 9px 14px;
+    transition: .15s ease; white-space: nowrap;
+  }
+  .btn:hover { border-color: #3b4d7f; background: var(--panel-2); transform: translateY(-1px); }
+  .btn.primary { background: linear-gradient(135deg, #4f7cff, #6f5bf6); border-color: transparent; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; }
+  .btn.small { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+  .stats {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px; margin-bottom: 22px;
+  }
+  .stat {
+    background: linear-gradient(180deg, rgba(26, 36, 68, .9), rgba(17, 24, 49, .9));
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .stat .label { color: var(--muted); font-size: 12px; letter-spacing: .5px; }
+  .stat .value { margin-top: 8px; font-size: 28px; font-weight: 700; }
+  .stat .value.green { color: var(--accent-2); }
+  .stat .value.blue { color: #7ea2ff; }
+  .stat .value.yellow { color: var(--warning); }
+  .toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .search {
+    flex: 1; min-width: 240px; max-width: 460px;
+    padding: 11px 14px; border-radius: 12px; outline: none;
+    border: 1px solid var(--border); background: rgba(10, 15, 31, .65);
+    color: var(--text);
+  }
+  .search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91, 140, 255, .14); }
+  .updated { color: var(--muted); font-size: 12px; }
+  .error {
+    border: 1px solid rgba(255, 107, 122, .4); background: rgba(255, 107, 122, .09);
+    color: #ffb5bd; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;
+    font-size: 13px; white-space: pre-wrap;
+  }
+  .hidden { display: none !important; }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .card {
+    background: linear-gradient(180deg, rgba(27, 37, 70, .92), rgba(17, 24, 49, .94));
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(91, 140, 255, .8), transparent);
+    opacity: .7;
+  }
+  .card.offline::before { background: linear-gradient(90deg, transparent, rgba(255, 107, 122, .65), transparent); }
+  .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .host { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .host h2 { margin: 0; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .host .fqdn { color: var(--muted); font-size: 11px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; background: var(--danger); box-shadow: 0 0 0 4px rgba(255, 107, 122, .12); }
+  .dot.on { background: var(--accent-2); box-shadow: 0 0 0 4px rgba(54, 209, 163, .12); }
+  .pill {
+    font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--muted); white-space: nowrap;
+  }
+  .pill.on { color: var(--accent-2); border-color: rgba(54, 209, 163, .35); background: rgba(54, 209, 163, .07); }
+  .ip-box {
+    display: flex; align-items: center; gap: 10px; margin: 16px 0 14px;
+    padding: 13px 14px; border-radius: 12px;
+    background: rgba(8, 13, 28, .55); border: 1px solid rgba(39, 51, 86, .8);
+  }
+  .ip-main {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 22px; font-weight: 700; letter-spacing: .2px; overflow-wrap: anywhere;
+  }
+  .ip-main.v6 { font-size: 16px; }
+  .ip-label { color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+  .meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 18px; }
+  .meta-item { min-width: 0; }
+  .meta-item .k { color: var(--muted); font-size: 11px; }
+  .meta-item .v { font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .ifaces { margin-top: 13px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .iface {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; padding: 5px 8px; border-radius: 7px;
+    background: rgba(91, 140, 255, .08); border: 1px solid rgba(91, 140, 255, .18);
+    color: #c8d5ff;
+  }
+  .iface.v6 { background: rgba(54, 209, 163, .06); border-color: rgba(54, 209, 163, .18); color: #b8f0df; }
+  .card-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-top: 16px; padding-top: 13px; border-top: 1px solid rgba(39, 51, 86, .7);
+    color: var(--muted); font-size: 11px;
+  }
+  .empty {
+    text-align: center; color: var(--muted); padding: 60px 20px;
+    border: 1px dashed var(--border); border-radius: var(--radius);
+  }
+  .empty strong { display: block; color: var(--text); font-size: 16px; margin-bottom: 8px; }
+  dialog {
+    border: 1px solid var(--border); border-radius: 16px; padding: 0;
+    background: var(--bg-soft); color: var(--text); width: min(860px, 92vw);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+  }
+  dialog::backdrop { background: rgba(3, 6, 15, .72); backdrop-filter: blur(3px); }
+  .dialog-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px; border-bottom: 1px solid var(--border);
+  }
+  .dialog-head h3 { margin: 0; font-size: 16px; }
+  .dialog-body { padding: 16px 18px 20px; overflow: auto; max-height: 68vh; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid rgba(39, 51, 86, .65); }
+  th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--bg-soft); }
+  td.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px);
+    background: #1f2b4e; border: 1px solid #354675; color: var(--text);
+    padding: 10px 16px; border-radius: 10px; opacity: 0; pointer-events: none;
+    transition: .2s ease; font-size: 12px; box-shadow: var(--shadow);
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cards { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    .app { padding: 20px 14px 50px; }
+    .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat { padding: 13px; }
+    .stat .value { font-size: 22px; }
+    .token-wrap input { width: 100%; }
+    .actions { width: 100%; }
+    .token-wrap { flex: 1; }
+    .meta { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="logo">IP</div>
+      <div>
+        <h1 id="title">内网 IP 上报</h1>
+        <p class="subtitle">客户端自动上报，服务器集中展示最新内网地址</p>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="token-wrap">
+        <input id="tokenInput" type="password" placeholder="管理令牌 admin token" autocomplete="off" spellcheck="false">
+      </div>
+      <button class="btn primary" id="saveToken">保存令牌</button>
+      <button class="btn" id="refresh">刷新</button>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><div class="label">客户端总数</div><div class="value blue" id="statTotal">—</div></div>
+    <div class="stat"><div class="label">在线</div><div class="value green" id="statOnline">—</div></div>
+    <div class="stat"><div class="label">离线</div><div class="value yellow" id="statOffline">—</div></div>
+    <div class="stat"><div class="label">最后刷新</div><div class="value" id="statUpdated" style="font-size:15px;margin-top:12px">—</div></div>
+  </section>
+
+  <div class="toolbar">
+    <input class="search" id="search" type="search" placeholder="搜索主机名 / 内网 IP / 公网 IP / 客户端 ID" autocomplete="off">
+    <span class="updated" id="updated">等待加载…</span>
+  </div>
+
+  <div class="error hidden" id="errorBox"></div>
+  <div class="empty hidden" id="emptyBox">
+    <strong>还没有客户端上报</strong>
+    在 Linux 电脑上安装客户端后，这里会自动出现记录。
+  </div>
+  <div class="cards" id="cards"></div>
+</div>
+
+<dialog id="historyDialog">
+  <div class="dialog-head">
+    <h3 id="historyTitle">上报历史</h3>
+    <button class="btn small" id="closeHistory">关闭</button>
+  </div>
+  <div class="dialog-body" id="historyBody"></div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const API = "api/v1/";
+  const TOKEN_KEY = "ipReporterAdminToken";
+  const REFRESH_MS = 30000;
+
+  const state = {
+    token: localStorage.getItem(TOKEN_KEY) || "",
+    clients: [],
+    filter: "",
+    loading: false,
+    needsToken: false,
+    lastLoaded: null,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const cardsEl = $("cards");
+  const errorBox = $("errorBox");
+  const emptyBox = $("emptyBox");
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function showError(message) {
+    errorBox.textContent = message;
+    errorBox.classList.remove("hidden");
+  }
+
+  function clearError() {
+    errorBox.textContent = "";
+    errorBox.classList.add("hidden");
+  }
+
+  let toastTimer = null;
+  function toast(message) {
+    const node = $("toast");
+    node.textContent = message;
+    node.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => node.classList.remove("show"), 1800);
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("已复制 " + text);
+    } catch (err) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); toast("已复制 " + text); }
+      catch (e) { toast("复制失败，请手动复制"); }
+      finally { document.body.removeChild(ta); }
+    }
+  }
+
+  function relativeTime(iso) {
+    if (!iso) return "—";
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return iso;
+    const diff = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (diff < 10) return "刚刚";
+    if (diff < 60) return diff + " 秒前";
+    if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+    if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
+    return Math.floor(diff / 86400) + " 天前";
+  }
+
+  function formatLocal(iso) {
+    if (!iso) return "—";
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return iso;
+    const d = new Date(t);
+    const pad = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+      " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+
+  function addressList(client) {
+    const result = [];
+    const seen = new Set();
+    for (const iface of client.interfaces || []) {
+      for (const addr of iface.addresses || []) {
+        const key = addr.address;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push({ name: iface.name, family: addr.family, address: addr.address });
+      }
+    }
+    return result;
+  }
+
+  function makeCopyButton(text, label) {
+    const btn = el("button", "btn small ghost", label || "复制");
+    btn.type = "button";
+    btn.addEventListener("click", () => copyText(text));
+    return btn;
+  }
+
+  function renderClient(client) {
+    const card = el("article", "card" + (client.online ? "" : " offline"));
+
+    const head = el("div", "card-head");
+    const host = el("div", "host");
+    const dot = el("span", "dot" + (client.online ? " on" : ""));
+    const names = el("div");
+    const h2 = el("h2", "", client.hostname || client.client_id);
+    names.appendChild(h2);
+    if (client.fqdn && client.fqdn !== client.hostname) {
+      names.appendChild(el("div", "fqdn", client.fqdn));
+    }
+    host.appendChild(dot);
+    host.appendChild(names);
+
+    const pill = el("span", "pill" + (client.online ? " on" : ""), client.online ? "在线" : "离线");
+    head.appendChild(host);
+    head.appendChild(pill);
+    card.appendChild(head);
+
+    const ipBox = el("div", "ip-box");
+    const ipText = el("div");
+    const label = el("div", "ip-label", "内网 IP");
+    const value = el("div", "ip-main" + (client.primary_ip ? "" : " v6"), client.primary_ip || client.primary_ipv6 || "未知");
+    ipText.appendChild(label);
+    ipText.appendChild(value);
+    ipBox.appendChild(ipText);
+    const spacer = el("div");
+    spacer.style.flex = "1";
+    ipBox.appendChild(spacer);
+    ipBox.appendChild(makeCopyButton(client.primary_ip || client.primary_ipv6 || ""));
+    card.appendChild(ipBox);
+
+    const meta = el("div", "meta");
+    const items = [
+      ["公网出口 IP", client.public_ip || "—", "mono"],
+      ["最后上报", relativeTime(client.last_seen) + " · " + formatLocal(client.last_seen), ""],
+      ["系统", client.os || "—", ""],
+      ["内核 / 客户端", (client.kernel || "—") + " / " + (client.agent_version || "—"), ""],
+      ["客户端 ID", client.client_id, "mono"],
+      ["上报次数 / 首次", (client.report_count || 0) + " 次 · " + formatLocal(client.first_seen), ""],
+    ];
+    for (const item of items) {
+      const wrap = el("div", "meta-item");
+      wrap.appendChild(el("div", "k", item[0]));
+      const v = el("div", "v " + item[2], item[1]);
+      v.title = item[1];
+      wrap.appendChild(v);
+      meta.appendChild(wrap);
+    }
+    card.appendChild(meta);
+
+    const addresses = addressList(client);
+    if (addresses.length) {
+      const ifaces = el("div", "ifaces");
+      for (const addr of addresses.slice(0, 8)) {
+        const chip = el("span", "iface" + (addr.family === "inet6" ? " v6" : ""),
+          addr.name + " · " + addr.address);
+        chip.title = addr.name + " " + addr.family + " " + addr.address;
+        ifaces.appendChild(chip);
+      }
+      if (addresses.length > 8) {
+        ifaces.appendChild(el("span", "iface", "+" + (addresses.length - 8) + " 个地址"));
+      }
+      card.appendChild(ifaces);
+    }
+
+    const foot = el("div", "card-foot");
+    const left = el("span", "", client.online ? "最近一次上报正常" : "超过阈值未上报");
+    const actions = el("div");
+    actions.style.display = "flex";
+    actions.style.gap = "6px";
+    const hist = el("button", "btn small", "历史");
+    hist.type = "button";
+    hist.addEventListener("click", () => openHistory(client));
+    const copyJson = el("button", "btn small ghost", "复制 JSON");
+    copyJson.type = "button";
+    copyJson.addEventListener("click", () => copyText(JSON.stringify(client, null, 2)));
+    actions.appendChild(hist);
+    actions.appendChild(copyJson);
+    foot.appendChild(left);
+    foot.appendChild(actions);
+    card.appendChild(foot);
+
+    return card;
+  }
+
+  function filteredClients() {
+    const q = state.filter.trim().toLowerCase();
+    if (!q) return state.clients;
+    return state.clients.filter((client) => {
+      const hay = [
+        client.hostname, client.fqdn, client.primary_ip, client.primary_ipv6,
+        client.public_ip, client.client_id,
+        ...(client.interfaces || []).flatMap((i) => [i.name, ...(i.addresses || []).map((a) => a.address)]),
+      ].filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+  }
+
+  function render() {
+    const clients = filteredClients();
+    cardsEl.replaceChildren();
+
+    const online = state.clients.filter((c) => c.online).length;
+    $("statTotal").textContent = String(state.clients.length);
+    $("statOnline").textContent = String(online);
+    $("statOffline").textContent = String(state.clients.length - online);
+    $("statUpdated").textContent = state.lastLoaded ? formatLocal(state.lastLoaded.toISOString()) : "—";
+    $("updated").textContent = state.lastLoaded ? "上次刷新：" + relativeTime(state.lastLoaded.toISOString()) : "等待加载…";
+
+    if (!clients.length) {
+      emptyBox.classList.remove("hidden");
+      emptyBox.querySelector("strong").textContent = state.clients.length
+        ? "没有匹配的客户端"
+        : "还没有客户端上报";
+      return;
+    }
+    emptyBox.classList.add("hidden");
+    for (const client of clients) cardsEl.appendChild(renderClient(client));
+  }
+
+  async function api(path, options) {
+    const opts = options || {};
+    const headers = Object.assign({ "Accept": "application/json" }, opts.headers || {});
+    if (state.token) headers["Authorization"] = "Bearer " + state.token;
+    const res = await fetch(path, Object.assign({}, opts, { headers, cache: "no-store" }));
+    let data = null;
+    const text = await res.text();
+    if (text) {
+      try { data = JSON.parse(text); } catch (e) { data = null; }
+    }
+    if (res.status === 401) {
+      state.needsToken = true;
+      throw new Error("管理令牌无效或未填写，请在右上角输入 admin token 后保存。");
+    }
+    if (!res.ok) {
+      throw new Error((data && data.error) || ("HTTP " + res.status));
+    }
+    return data;
+  }
+
+  async function loadClients() {
+    if (state.loading) return;
+    state.loading = true;
+    try {
+      const data = await api(API + "clients?limit=1000");
+      state.clients = data.clients || [];
+      state.needsToken = false;
+      state.lastLoaded = new Date();
+      clearError();
+      render();
+    } catch (err) {
+      showError(err.message || String(err));
+      if (!state.clients.length) {
+        $("statTotal").textContent = "—";
+        $("statOnline").textContent = "—";
+        $("statOffline").textContent = "—";
+      }
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  async function openHistory(client) {
+    const dialog = $("historyDialog");
+    const body = $("historyBody");
+    $("historyTitle").textContent = "上报历史 · " + (client.hostname || client.client_id);
+    body.replaceChildren(el("div", "updated", "加载中…"));
+    if (!dialog.open) dialog.showModal();
+    try {
+      const data = await api(API + "clients/" + encodeURIComponent(client.client_id) + "/history?limit=50");
+      const reports = data.reports || [];
+      if (!reports.length) {
+        body.replaceChildren(el("div", "empty", "暂无历史记录"));
+        return;
+      }
+      const table = el("table");
+      const thead = el("thead");
+      const hr = el("tr");
+      for (const title of ["服务器接收时间", "内网 IP", "公网 IP", "客户端时间"]) {
+        hr.appendChild(el("th", "", title));
+      }
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      const tbody = el("tbody");
+      for (const report of reports) {
+        const tr = el("tr");
+        tr.appendChild(el("td", "", formatLocal(report.received_at)));
+        tr.appendChild(el("td", "mono", report.primary_ip || report.primary_ipv6 || "—"));
+        tr.appendChild(el("td", "mono", report.public_ip || "—"));
+        tr.appendChild(el("td", "mono", report.client_time || "—"));
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      body.replaceChildren(table);
+    } catch (err) {
+      body.replaceChildren(el("div", "error", err.message || String(err)));
+    }
+  }
+
+  $("saveToken").addEventListener("click", () => {
+    state.token = $("tokenInput").value.trim();
+    localStorage.setItem(TOKEN_KEY, state.token);
+    state.needsToken = false;
+    loadClients();
+  });
+
+  $("tokenInput").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") $("saveToken").click();
+  });
+
+  $("refresh").addEventListener("click", loadClients);
+
+  $("search").addEventListener("input", (ev) => {
+    state.filter = ev.target.value;
+    render();
+  });
+
+  $("closeHistory").addEventListener("click", () => $("historyDialog").close());
+  $("historyDialog").addEventListener("click", (ev) => {
+    if (ev.target === $("historyDialog")) $("historyDialog").close();
+  });
+
+  $("tokenInput").value = state.token;
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && state.lastLoaded &&
+        Date.now() - state.lastLoaded.getTime() > REFRESH_MS) {
+      loadClients();
+    }
+  });
+
+  loadClients();
+  setInterval(() => { if (!document.hidden) loadClients(); }, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

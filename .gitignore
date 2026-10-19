@@ -1,0 +1,23 @@
+# Runtime data and secrets
+/data/
+/config/server.json
+/client/config.json
+*.log
+*.tmp
+*.db
+*.db-wal
+*.db-shm
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

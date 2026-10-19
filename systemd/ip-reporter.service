@@ -1,0 +1,30 @@
+[Unit]
+Description=Report internal IP addresses to central server
+Documentation=https://ip.ooops.dpdns.org/
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/ip-reporter/client.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ip-reporter --config /etc/ip-reporter/client.json
+User=root
+Group=root
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+StateDirectory=ip-reporter
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/ip-reporter
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+LockPersonality=true
+TimeoutStartSec=60s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+{
+  "listen_host": "127.0.0.1",
+  "listen_port": 8765,
+  "data_dir": "../data",
+  "report_token": "REPLACE_WITH_A_LONG_RANDOM_TOKEN",
+  "admin_token": "REPLACE_WITH_ANOTHER_LONG_RANDOM_TOKEN",
+  "trust_proxy": true,
+  "online_threshold_seconds": 600,
+  "history_retention_days": 90,
+  "history_max_per_client": 1000,
+  "dashboard_title": "内网 IP 上报"
+}

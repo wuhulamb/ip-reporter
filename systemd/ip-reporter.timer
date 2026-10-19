@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically report internal IP addresses
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+AccuracySec=1min
+Unit=ip-reporter.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew Let's Encrypt certificates
+Documentation=https://eff-certbot.readthedocs.io/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/certbot renew --quiet

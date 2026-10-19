@@ -1,0 +1,14 @@
+{
+  "server_url": "https://ip.ooops.dpdns.org",
+  "report_token": "PASTE_REPORT_TOKEN_HERE",
+  "client_id": "",
+  "state_file": "/var/lib/ip-reporter/state.json",
+  "timeout_seconds": 10,
+  "retries": 3,
+  "verify_tls": true,
+  "ca_file": "",
+  "include_interfaces": [],
+  "exclude_interfaces": ["lo", "docker*", "veth*", "br-*", "virbr*"],
+  "include_loopback": false,
+  "extra_tags": {}
+}

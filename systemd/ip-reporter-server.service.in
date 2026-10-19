@@ -1,0 +1,30 @@
+[Unit]
+Description=Internal IP reporter server
+Documentation=https://ip.ooops.dpdns.org/
+After=network.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@GROUP@
+WorkingDirectory=@DIR@
+ExecStart=/usr/bin/python3 @DIR@/server/ip_reporter_server.py --config @DIR@/config/server.json
+Environment=PYTHONUNBUFFERED=1
+SyslogIdentifier=ip-reporter-server
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@DIR@/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+LockPersonality=true
+TimeoutStopSec=15s
+
+[Install]
+WantedBy=multi-user.target
