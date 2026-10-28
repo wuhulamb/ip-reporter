@@ -32,9 +32,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = "1.1.0"
+VERSION = "1.3.0"
 LOG = logging.getLogger("ip-reporter-server")
 
+MAX_LABEL_LENGTH = 64
 MAX_BODY_BYTES = 64 * 1024
 MAX_INTERFACES = 64
 MAX_ADDRESSES_PER_INTERFACE = 64
@@ -251,6 +252,9 @@ def normalize_report(data: Any) -> Dict[str, Any]:
             "client_id may only contain letters, digits, '.', '_', ':', '@' and '-'"
         )
 
+    label = clean_text(data.get("label"), "label", MAX_LABEL_LENGTH)
+    assert label is not None
+
     hostname = clean_text(data.get("hostname"), "hostname", 255)
     assert hostname is not None
     fqdn = clean_text(
@@ -279,6 +283,7 @@ def normalize_report(data: Any) -> Dict[str, Any]:
 
     return {
         "client_id": client_id,
+        "label": label,
         "hostname": hostname,
         "fqdn": fqdn,
         "primary_ip": primary_ip,
@@ -532,6 +537,7 @@ class Store:
         tags = data.get("tags")
         return {
             "client_id": data.get("client_id"),
+            "label": data.get("label") or "",
             "hostname": data.get("hostname"),
             "fqdn": data.get("fqdn"),
             "primary_ip": data.get("primary_ip"),
@@ -606,6 +612,7 @@ class Store:
             latest = {
                 "schema_version": 1,
                 "client_id": report["client_id"],
+                "label": report["label"],
                 "hostname": report["hostname"],
                 "fqdn": report["fqdn"],
                 "primary_ip": report["primary_ip"],
@@ -626,6 +633,7 @@ class Store:
             history_record = {
                 "schema_version": 1,
                 "client_id": report["client_id"],
+                "label": report["label"],
                 "hostname": report["hostname"],
                 "fqdn": report["fqdn"],
                 "primary_ip": report["primary_ip"],
@@ -691,6 +699,7 @@ class Store:
             if needle:
                 values = [
                     client.get("client_id"),
+                    client.get("label"),
                     client.get("hostname"),
                     client.get("fqdn"),
                     client.get("primary_ip"),
@@ -720,18 +729,25 @@ class Store:
         data = self._read_json(client_dir / "latest.json")
         return self._client_record(data) if data else None
 
-    def lookup(self, hostname: str = "", client_id: str = "") -> Optional[Dict[str, Any]]:
+    def lookup(
+        self, hostname: str = "", client_id: str = "", label: str = ""
+    ) -> Optional[Dict[str, Any]]:
         if client_id:
             return self.get_client(client_id)
         target = hostname.strip().lower()
-        if not target:
+        target_label = label.strip().lower()
+        if not target and not target_label:
             return None
         matches: List[Dict[str, Any]] = []
         for data in self._iter_latest():
-            if (data.get("hostname") or "").lower() == target or (
-                data.get("fqdn") or ""
-            ).lower() == target:
-                matches.append(self._client_record(data))
+            if target_label and (data.get("label") or "").lower() != target_label:
+                continue
+            if target and not (
+                (data.get("hostname") or "").lower() == target
+                or (data.get("fqdn") or "").lower() == target
+            ):
+                continue
+            matches.append(self._client_record(data))
         if not matches:
             return None
         matches.sort(key=lambda item: item.get("last_seen") or "", reverse=True)
@@ -766,6 +782,7 @@ class Store:
                 {
                     "id": path.stem,
                     "client_id": data.get("client_id"),
+                    "label": data.get("label") or "",
                     "client_time": data.get("client_time"),
                     "received_at": data.get("received_at"),
                     "primary_ip": data.get("primary_ip"),
@@ -1192,8 +1209,9 @@ class Handler(BaseHTTPRequestHandler):
             received_at=received_at,
         )
         LOG.info(
-            "report client=%s hostname=%s primary=%s public=%s",
+            "report client=%s label=%s hostname=%s primary=%s public=%s",
             report["client_id"],
+            report["label"] or "-",
             report["hostname"],
             report["primary_ip"] or report["primary_ipv6"],
             source_ip,
@@ -1203,6 +1221,7 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "ok": True,
                 "client_id": report["client_id"],
+                "label": report["label"],
                 "server_time": received_at,
                 "observed_ip": source_ip,
                 "primary_ip": report["primary_ip"],
@@ -1280,13 +1299,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         hostname = (query.get("hostname") or query.get("name") or [""])[0].strip()
         client_id = (query.get("client_id") or [""])[0].strip()
-        if not hostname and not client_id:
+        label = (query.get("label") or [""])[0].strip()
+        if not hostname and not client_id and not label:
             return self._error(
                 HTTPStatus.BAD_REQUEST,
-                "hostname or client_id query parameter is required",
+                "hostname, client_id or label query parameter is required",
                 head_only=head_only,
             )
-        client = self.app.store.lookup(hostname=hostname, client_id=client_id)
+        client = self.app.store.lookup(
+            hostname=hostname, client_id=client_id, label=label
+        )
         if not client:
             return self._error(HTTPStatus.NOT_FOUND, "client not found", head_only=head_only)
 
@@ -1305,6 +1327,7 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "ok": True,
                 "client_id": client["client_id"],
+                "label": client["label"],
                 "hostname": client["hostname"],
                 "primary_ip": client["primary_ip"],
                 "primary_ipv6": client["primary_ipv6"],

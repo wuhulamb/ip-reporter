@@ -2,6 +2,7 @@
   "server_url": "https://ip.ooops.dpdns.org",
   "report_token": "PASTE_REPORT_TOKEN_HERE",
   "client_id": "",
+  "label": "guo",
   "state_file": "/var/lib/ip-reporter/state.json",
   "timeout_seconds": 10,
   "retries": 3,

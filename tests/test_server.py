@@ -83,9 +83,10 @@ class ServerTest(unittest.TestCase):
         status, headers, body = self.request(*args, **kwargs)
         return status, headers, json.loads(body.decode("utf-8"))
 
-    def report_payload(self, client_id="test-client", ip="192.168.1.50"):
+    def report_payload(self, client_id="test-client", ip="192.168.1.50", label="guo"):
         return {
             "client_id": client_id,
+            "label": label,
             "hostname": "test-laptop",
             "fqdn": "test-laptop.local",
             "primary_ip": ip,
@@ -160,6 +161,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(listing["count"], 1)
         client = listing["clients"][0]
         self.assertEqual(client["client_id"], "test-client")
+        self.assertEqual(client["label"], "guo")
         self.assertEqual(client["primary_ip"], "192.168.1.50")
         self.assertEqual(client["public_ip"], "127.0.0.1")
         self.assertEqual(client["report_count"], 1)
@@ -197,6 +199,7 @@ class ServerTest(unittest.TestCase):
         latest = json.loads(latest_path.read_text(encoding="utf-8"))
         self.assertEqual(latest["schema_version"], 1)
         self.assertEqual(latest["client_id"], "test-client")
+        self.assertEqual(latest["label"], "guo")
         self.assertEqual(latest["primary_ip"], "192.168.1.50")
         self.assertEqual(latest["report_count"], 1)
         self.assertEqual(latest["first_seen"], latest["last_seen"])
@@ -205,6 +208,7 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(len(history_files), 1)
         history = json.loads(history_files[0].read_text(encoding="utf-8"))
         self.assertEqual(history["received_at"], latest["last_seen"])
+        self.assertEqual(history["label"], "guo")
         self.assertEqual(history["primary_ip"], "192.168.1.50")
 
         # Atomic writes must not leave temporary files behind.
@@ -315,6 +319,41 @@ class ServerTest(unittest.TestCase):
                 "client_id": "x",
                 "hostname": "h",
                 "primary_ip": "192.168.1.2",
+            },
+            {
+                "client_id": "x",
+                "hostname": "h",
+                "primary_ip": "192.168.1.2",
+                "label": "",
+            },
+            {
+                "client_id": "x",
+                "hostname": "h",
+                "primary_ip": "192.168.1.2",
+                "label": "   ",
+            },
+            {
+                "client_id": "x",
+                "hostname": "h",
+                "primary_ip": "192.168.1.2",
+                "label": 123,
+            },
+            {
+                "client_id": "x",
+                "hostname": "h",
+                "primary_ip": "192.168.1.2",
+                "label": "line\nbreak",
+            },
+            {
+                "client_id": "x",
+                "hostname": "h",
+                "primary_ip": "192.168.1.2",
+                "label": "x" * 65,
+            },
+            {
+                "client_id": "x",
+                "hostname": "h",
+                "primary_ip": "192.168.1.2",
                 "interfaces": [
                     {
                         "name": "eth0",
@@ -331,6 +370,59 @@ class ServerTest(unittest.TestCase):
             )
             self.assertEqual(status, 400, payload)
             self.assertIn("error", data)
+
+    def test_label_search_and_lookup(self):
+        for client_id, label, ip in (
+            ("laptop-a", "guo", "192.168.1.10"),
+            ("laptop-b", "Guo-Backup", "192.168.1.11"),
+        ):
+            status, _, data = self.json_request(
+                "POST",
+                "/api/v1/report",
+                self.report_payload(client_id=client_id, ip=ip, label=label),
+                token=REPORT_TOKEN,
+            )
+            self.assertEqual(status, 200, data)
+
+        status, _, listing = self.json_request(
+            "GET", "/api/v1/clients?q=guo", token=ADMIN_TOKEN
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(listing["count"], 2)
+        self.assertEqual(
+            {client["label"] for client in listing["clients"]}, {"guo", "Guo-Backup"}
+        )
+
+        status, _, lookup = self.json_request(
+            "GET", "/api/v1/lookup?label=guo", token=ADMIN_TOKEN
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(lookup["client_id"], "laptop-a")
+        self.assertEqual(lookup["label"], "guo")
+
+        status, _, lookup = self.json_request(
+            "GET", "/api/v1/lookup?label=guo-backup", token=ADMIN_TOKEN
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(lookup["client_id"], "laptop-b")
+
+        status, _, body = self.request(
+            "GET", "/api/v1/lookup?label=GUO&format=text", token=ADMIN_TOKEN
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"192.168.1.10\n")
+
+        status, _, lookup = self.json_request(
+            "GET", "/api/v1/lookup?label=guo&hostname=test-laptop",
+            token=ADMIN_TOKEN,
+        )
+        self.assertEqual(status, 200)
+        self.assertIn(lookup["client_id"], ("laptop-a", "laptop-b"))
+
+        status, _, _ = self.json_request(
+            "GET", "/api/v1/lookup?label=missing", token=ADMIN_TOKEN
+        )
+        self.assertEqual(status, 404)
 
     def test_unknown_api_route(self):
         status, _, data = self.json_request("GET", "/api/v1/nope", token=ADMIN_TOKEN)

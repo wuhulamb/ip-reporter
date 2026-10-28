@@ -1,6 +1,7 @@
 # 内网 IP 上报
 
 Linux 客户端定时把本机内网 IP 上报到服务器，通过网页查看最新 IP 和历史记录。
+每台客户端必须设置一个可读的**标志**（例如 `guo`、`office-pc`），方便区分不同机器。
 
 - 面板：<https://ip.ooops.dpdns.org/>
 - 服务端目录：`/home/USER/ip-reporter`
@@ -26,8 +27,15 @@ TOKEN=$(ssh -i ~/.ssh/id_rsa USER@SERVER \
 
 sudo ./client/install.sh \
   --server-url https://ip.ooops.dpdns.org \
-  --token "$TOKEN"
+  --token "$TOKEN" \
+  --label guo
 ```
+
+`--label` 是必填的客户端标志，会显示在面板卡片和查询结果中。已经安装过的客户端
+可以再次执行同一条命令（带上 `--label guo`）只更新标志；也可以直接修改
+`/etc/ip-reporter/client.json` 里的 `"label": "guo"`，然后执行
+`sudo systemctl start ip-reporter.service`。注意 `--force` 会重写整个客户端配置；
+如果只想修改标志，请不要加 `--force`。
 
 默认每 5 分钟上报一次，开机和网络变化时也会触发。修改间隔：
 
@@ -83,20 +91,29 @@ curl -fsS http://127.0.0.1:8765/healthz
 journalctl -u ip-reporter-server -n 50 --no-pager
 ```
 
-查询某台机器的内网 IP：
+查询某台机器的内网 IP（按主机名或标志）：
 
 ```bash
 ADMIN_TOKEN='你的 admin_token'
 
 curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" \
   'https://ip.ooops.dpdns.org/api/v1/lookup?hostname=my-laptop&format=text'
+
+curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://ip.ooops.dpdns.org/api/v1/lookup?label=guo&format=text'
 ```
 
-查看所有客户端：
+标志用于方便地区分客户端，不要求唯一；如果多个客户端使用同一个标志，返回最近
+上报的那一台。需要精确定位时请使用 `client_id`。
+
+查看所有客户端，或按标志搜索：
 
 ```bash
 curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" \
   'https://ip.ooops.dpdns.org/api/v1/clients'
+
+curl -fsS -H "Authorization: Bearer $ADMIN_TOKEN" \
+  'https://ip.ooops.dpdns.org/api/v1/clients?q=guo'
 ```
 
 备份数据：
@@ -114,7 +131,15 @@ sudo tar czf ip-reporter-data-$(date +%F).tar.gz \
 
 客户端配置：`/etc/ip-reporter/client.json`
 
-常用字段：`server_url`、`report_token`、`exclude_interfaces`、`timeout_seconds`、`retries`。
+常用字段：`server_url`、`report_token`、`label`、`exclude_interfaces`、`timeout_seconds`、`retries`。
+
+`label` 是客户端标志，**必填**，最多 64 个字符，可以包含中文。也可以在临时运行时
+用 `--label` 覆盖，或通过环境变量 `IP_REPORTER_LABEL` 指定：
+
+```bash
+/usr/local/bin/ip-reporter --config /etc/ip-reporter/client.json \
+  --print-payload --label guo
+```
 
 修改后重启：
 
@@ -134,6 +159,25 @@ sudo systemctl start ip-reporter.service
 journalctl -u ip-reporter.service -n 50 --no-pager
 ```
 
+**面板上看不到标志**
+
+确认客户端配置里有 `"label": "guo"`，并且客户端版本已经更新：
+
+```bash
+sudo /usr/local/bin/ip-reporter \
+  --config /etc/ip-reporter/client.json --print-payload
+```
+
+输出的 JSON 中应该包含 `"label": "guo"`。
+
+**客户端报 label is required**
+
+新版客户端要求必须设置标志。重新运行安装脚本或直接修改配置：
+
+```bash
+sudo ./client/install.sh --label guo
+```
+
 **客户端 401**
 
 `report_token` 不一致。重新安装并指定正确的 token：
@@ -141,7 +185,8 @@ journalctl -u ip-reporter.service -n 50 --no-pager
 ```bash
 sudo ./client/install.sh \
   --server-url https://ip.ooops.dpdns.org \
-  --token '正确的 report_token' --force
+  --token '正确的 report_token' \
+  --label '你的标志' --force
 ```
 
 **nginx 502**

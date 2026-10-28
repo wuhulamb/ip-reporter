@@ -4,7 +4,8 @@
 The client has no third-party dependencies and is designed to be run from a
 systemd timer (or manually with --loop).  It detects the address used by the
 default route, plus all non-loopback interface addresses, and POSTs them to the
-server over HTTPS.
+server over HTTPS.  Every client must send a human-readable label (for example
+"guo" or "office-pc") so different machines are easy to tell apart.
 """
 
 from __future__ import annotations
@@ -36,8 +37,10 @@ try:
 except ImportError:  # pragma: no cover - non-Linux
     fcntl = None  # type: ignore[assignment]
 
-VERSION = "1.0.1"
+VERSION = "1.2.0"
 LOG = logging.getLogger("ip-reporter")
+
+MAX_LABEL_LENGTH = 64
 
 CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -68,6 +71,22 @@ class ConfigError(RuntimeError):
     pass
 
 
+def normalize_label(value: Any) -> str:
+    """Validate and normalize the required human-readable client label."""
+    if value is None:
+        raise ConfigError("label is required")
+    if not isinstance(value, str):
+        raise ConfigError("label must be a string")
+    if CONTROL_RE.search(value):
+        raise ConfigError("label contains control characters")
+    text = value.strip()
+    if not text:
+        raise ConfigError("label is required")
+    if len(text) > MAX_LABEL_LENGTH:
+        raise ConfigError(f"label is too long (max {MAX_LABEL_LENGTH} characters)")
+    return text
+
+
 class ReportError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool):
         super().__init__(message)
@@ -85,7 +104,9 @@ def default_state_file() -> str:
     return os.path.expanduser("~/.local/state/ip-reporter/state.json")
 
 
-def load_config(path: str) -> Dict[str, Any]:
+def load_config(
+    path: str, *, label_override: Optional[str] = None
+) -> Dict[str, Any]:
     config_path = Path(path).expanduser().resolve()
     try:
         with config_path.open("r", encoding="utf-8") as fh:
@@ -105,11 +126,15 @@ def load_config(path: str) -> Dict[str, Any]:
         "server_url": "IP_REPORTER_SERVER_URL",
         "report_token": "IP_REPORTER_TOKEN",
         "client_id": "IP_REPORTER_CLIENT_ID",
+        "label": "IP_REPORTER_LABEL",
         "state_file": "IP_REPORTER_STATE_FILE",
     }
     for key, env_name in env_map.items():
         if os.environ.get(env_name):
             cfg[key] = os.environ[env_name]
+
+    if label_override is not None:
+        cfg["label"] = label_override
 
     if os.environ.get("IP_REPORTER_INSECURE", "").strip().lower() in (
         "1",
@@ -134,6 +159,8 @@ def load_config(path: str) -> Dict[str, Any]:
         raise ConfigError(
             "client_id may only contain letters, digits, '.', '_', ':', '@' and '-'"
         )
+
+    cfg["label"] = normalize_label(cfg.get("label"))
 
     state_file = str(cfg.get("state_file") or "").strip()
     cfg["state_file"] = str(
@@ -642,6 +669,7 @@ def build_payload(cfg: Dict[str, Any], client_id: str) -> Dict[str, Any]:
 
     return {
         "client_id": client_id,
+        "label": normalize_label(cfg.get("label")),
         "hostname": hostname[:255],
         "fqdn": fqdn[:255] if fqdn and fqdn != hostname else "",
         "primary_ip": primary4,
@@ -780,7 +808,8 @@ def report_once(
     primary = payload.get("primary_ip") or payload.get("primary_ipv6") or "?"
     observed = result.get("observed_ip") or "?"
     LOG.info(
-        "reported hostname=%s primary=%s public=%s server=%s",
+        "reported label=%s hostname=%s primary=%s public=%s server=%s",
+        payload.get("label") or "-",
         payload["hostname"],
         primary,
         observed,
@@ -856,6 +885,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds between reports in --loop mode (default: 300)",
     )
     parser.add_argument(
+        "--label",
+        default=None,
+        help="override the configured label for this run (not saved)",
+    )
+    parser.add_argument(
         "--print-payload",
         action="store_true",
         help="print the detected payload as JSON without uploading",
@@ -886,7 +920,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     try:
-        cfg = load_config(args.config)
+        cfg = load_config(args.config, label_override=args.label)
     except ConfigError as exc:
         LOG.error("configuration error: %s", exc)
         return 2

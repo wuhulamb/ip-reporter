@@ -53,6 +53,7 @@ class ClientConfigTest(unittest.TestCase):
     def test_payload_detection(self):
         cfg = {
             "server_url": "http://127.0.0.1:9/api/v1/report",
+            "label": "guo",
             "include_interfaces": [],
             "exclude_interfaces": ["lo"],
             "include_loopback": False,
@@ -60,11 +61,40 @@ class ClientConfigTest(unittest.TestCase):
         }
         payload = client_mod.build_payload(cfg, "test-client")
         self.assertEqual(payload["client_id"], "test-client")
+        self.assertEqual(payload["label"], "guo")
         self.assertTrue(payload["hostname"])
         self.assertTrue(payload["primary_ip"] or payload["primary_ipv6"])
         self.assertEqual(payload["tags"], {"env": "test"})
         self.assertEqual(payload["agent_version"], client_mod.VERSION)
         self.assertIsInstance(payload["interfaces"], list)
+
+    def test_label_validation(self):
+        self.assertEqual(client_mod.normalize_label("  guo  "), "guo")
+        self.assertEqual(client_mod.normalize_label("客厅路由器"), "客厅路由器")
+        for value in (None, "", "   ", 123, "line\nbreak", "x" * 65):
+            with self.assertRaises(client_mod.ConfigError):
+                client_mod.normalize_label(value)
+
+    def test_config_requires_label(self):
+        tmp = Path(tempfile.mkdtemp(prefix="ip-reporter-label-test-"))
+        try:
+            path = tmp / "client.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "server_url": "http://127.0.0.1:9",
+                        "report_token": "test-token",
+                        "state_file": str(tmp / "state.json"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(client_mod.ConfigError):
+                client_mod.load_config(str(path))
+            cfg = client_mod.load_config(str(path), label_override="guo")
+            self.assertEqual(cfg["label"], "guo")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_interface_filters(self):
         self.assertFalse(
@@ -121,6 +151,7 @@ class ClientServerIntegrationTest(unittest.TestCase):
         cfg = {
             "server_url": self.base + "/api/v1/report",
             "report_token": self.report_token,
+            "label": "e2e-label",
             "include_interfaces": [],
             "exclude_interfaces": ["lo"],
             "include_loopback": False,
@@ -149,6 +180,7 @@ class ClientServerIntegrationTest(unittest.TestCase):
             data = json.loads(response.read().decode("utf-8"))
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["clients"][0]["client_id"], "e2e-client")
+        self.assertEqual(data["clients"][0]["label"], "e2e-label")
         self.assertEqual(data["clients"][0]["tags"], {"test": "e2e"})
 
 

@@ -4,7 +4,8 @@
 # Example:
 #   sudo ./client/install.sh \
 #       --server-url https://ip.ooops.dpdns.org \
-#       --token 'REPORT_TOKEN_FROM_SERVER'
+#       --token 'REPORT_TOKEN_FROM_SERVER' \
+#       --label guo
 #
 # Installed files:
 #   /usr/local/bin/ip-reporter
@@ -21,6 +22,8 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVER_URL=""
 TOKEN=""
 CLIENT_ID=""
+LABEL=""
+HAS_LABEL="0"
 INTERVAL_SECONDS="300"
 FORCE="0"
 UNINSTALL="0"
@@ -34,6 +37,8 @@ Options:
   --server-url URL   server base URL, e.g. https://ip.ooops.dpdns.org
   --token TOKEN      report_token from the server config
   --client-id ID     optional fixed client id
+  --label TEXT       required human-readable label, e.g. guo or office-pc
+                     (with an existing config, updates only the label)
   --interval VALUE   report interval, e.g. 300, 5min, 1h (default: 300)
   --force            overwrite an existing /etc/ip-reporter/client.json
   --uninstall        stop and remove the systemd units and client binary
@@ -57,6 +62,7 @@ while [ $# -gt 0 ]; do
         --server-url) SERVER_URL="${2:?--server-url needs a value}"; shift 2 ;;
         --token) TOKEN="${2:?--token needs a value}"; shift 2 ;;
         --client-id) CLIENT_ID="${2:?--client-id needs a value}"; shift 2 ;;
+        --label) LABEL="${2:?--label needs a value}"; HAS_LABEL="1"; shift 2 ;;
         --interval) INTERVAL_SECONDS="$(parse_interval "${2:?--interval needs a value}")"; shift 2 ;;
         --force) FORCE="1"; shift ;;
         --uninstall) UNINSTALL="1"; shift ;;
@@ -104,10 +110,57 @@ if [ ! -f "$CONFIG" ]; then
         read -r -s -p "Report token: " TOKEN
         echo
     fi
+    if [ -z "$LABEL" ] && [ -t 0 ]; then
+        read -r -p "Client label (e.g. guo): " LABEL
+    fi
 fi
 
 if [ -f "$CONFIG" ] && [ "$FORCE" != "1" ]; then
-    echo "keeping existing config: $CONFIG (use --force to overwrite)"
+    if [ "$HAS_LABEL" = "1" ]; then
+        LABEL="$LABEL" python3 - "$CONFIG" <<'PY'
+import json
+import os
+import re
+import sys
+
+path = sys.argv[1]
+label = os.environ.get("LABEL", "")
+if re.search(r"[\x00-\x1f\x7f]", label):
+    raise SystemExit("error: label contains control characters")
+label = label.strip()
+if not label:
+    raise SystemExit("error: label is required")
+if len(label) > 64:
+    raise SystemExit("error: label is too long (max 64 characters)")
+with open(path, "r", encoding="utf-8") as fh:
+    cfg = json.load(fh)
+cfg["label"] = label
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(cfg, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+os.chmod(path, 0o600)
+PY
+        echo "updated label in existing config: $CONFIG"
+    else
+        if ! python3 - "$CONFIG" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as fh:
+        cfg = json.load(fh)
+except Exception as exc:
+    print(f"error: cannot read {sys.argv[1]}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+label = cfg.get("label")
+raise SystemExit(0 if isinstance(label, str) and label.strip() else 1)
+PY
+        then
+            echo "error: existing config has no label; rerun with --label TEXT" >&2
+            exit 2
+        fi
+        echo "keeping existing config: $CONFIG (use --force to overwrite)"
+    fi
 else
     if [ -z "$SERVER_URL" ]; then
         echo "error: --server-url is required for a new config" >&2
@@ -117,21 +170,35 @@ else
         echo "error: --token is required for a new config" >&2
         exit 2
     fi
+    if [ -z "$LABEL" ]; then
+        echo "error: --label is required for a new config" >&2
+        exit 2
+    fi
 
     install -d -m 0700 /etc/ip-reporter
     install -d -m 0700 /var/lib/ip-reporter
 
     SERVER_URL="$SERVER_URL" REPORT_TOKEN="$TOKEN" CLIENT_ID="$CLIENT_ID" \
-    python3 - "$CONFIG" <<'PY'
+    LABEL="$LABEL" python3 - "$CONFIG" <<'PY'
 import json
 import os
+import re
 import sys
 
 path = sys.argv[1]
+label = os.environ.get("LABEL", "")
+if re.search(r"[\x00-\x1f\x7f]", label):
+    raise SystemExit("error: label contains control characters")
+label = label.strip()
+if not label:
+    raise SystemExit("error: label is required")
+if len(label) > 64:
+    raise SystemExit("error: label is too long (max 64 characters)")
 cfg = {
     "server_url": os.environ["SERVER_URL"].strip(),
     "report_token": os.environ["REPORT_TOKEN"].strip(),
     "client_id": os.environ.get("CLIENT_ID", "").strip(),
+    "label": label,
     "state_file": "/var/lib/ip-reporter/state.json",
     "timeout_seconds": 10,
     "retries": 3,
